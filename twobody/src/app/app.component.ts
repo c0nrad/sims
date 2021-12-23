@@ -56,6 +56,10 @@ import { ChartConfiguration, ChartType } from "chart.js";
             <ng-katex equation="U(r)"></ng-katex> = {{ U }} <br />
             <ng-katex equation="E_{total}"></ng-katex> = {{ T1 + T2 + U }}
             <br />
+            <ng-katex equation="\\epsilon"></ng-katex> = {{ epsilon }} <br />
+            <ng-katex equation="c"></ng-katex> = {{ c }} <br />
+
+            <br />
           </div>
           <div class="col-md-8">
             <div style="display: block">
@@ -129,6 +133,7 @@ import { ChartConfiguration, ChartType } from "chart.js";
           <label for="m2" class="form-label"
             ><ng-katex equation="v_1"></ng-katex> = ({{ v1 }})
           </label>
+
           <input
             type="text"
             class="form-control"
@@ -154,7 +159,7 @@ import { ChartConfiguration, ChartType } from "chart.js";
 })
 export class AppComponent {
   project!: paper.Project;
-  m1: number = 10;
+  m1: number = 20;
   m2: number = 20;
 
   M: paper.Point = new Point(5, 0);
@@ -172,10 +177,13 @@ export class AppComponent {
   T2: number = 0;
   U: number = 0;
 
+  epsilon: number = 0;
+  c: number = 0;
+
   r1Str: string = "250, 100";
-  r2Str: string = "250, 300";
-  v1Str: string = "200, 0";
-  v2Str: string = "-100, 0";
+  r2Str: string = "250, 250";
+  v1Str: string = "250, 0";
+  v2Str: string = "-250, 0";
 
   circle1!: paper.Path.Circle;
   circle2!: paper.Path.Circle;
@@ -369,6 +377,33 @@ export class AppComponent {
     this.T1 = 0.5 * this.m1 * this.v1.length * this.v1.length;
     this.T2 = 0.5 * this.m2 * this.v2.length * this.v2.length;
     this.U = (-this.gamma * this.m1 * this.m2) / this.r.length;
+    this.U_cf =
+      (this.l * this.l) / (2 * this.mu * this.r.length * this.r.length);
+    this.E = this.T1 + this.T2 + this.U;
+
+    console.log(
+      (2 * this.E * this.l * this.l) /
+        (this.mu *
+          this.gamma *
+          this.gamma *
+          this.m1 *
+          this.m2 *
+          this.m1 *
+          this.m2)
+    );
+
+    this.c = (this.l * this.l) / (this.gamma * this.m1 * this.m2 * this.mu);
+    this.epsilon = Math.sqrt(
+      1 +
+        (2 * this.E * this.l * this.l) /
+          (this.mu *
+            this.gamma *
+            this.gamma *
+            this.m1 *
+            this.m2 *
+            this.m1 *
+            this.m2)
+    );
 
     if (this.isCenter) {
       // this.circle1.position = this.circle1.position.subtract(this.M);
