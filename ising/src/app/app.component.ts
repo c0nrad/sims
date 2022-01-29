@@ -1,4 +1,6 @@
-import { Component } from "@angular/core";
+import { Component, ViewChild } from "@angular/core";
+import { EnergyPlotComponent } from "./components/energy-plot/energy-plot.component";
+import { MagnetismPlotComponent } from "./components/magnetism-plot/magnetism-plot.component";
 
 @Component({
   selector: "app-root",
@@ -11,12 +13,16 @@ import { Component } from "@angular/core";
         </div>
         <div>
           <p>Step: {{ time }}</p>
-          <p>Energy: {{ prevEnergy }}</p>
-          <p>Magnetism: {{ prevMagnetism }}</p>
+          <!-- <p>Energy: {{ prevEnergy }}</p> -->
+          <!-- <p>Magnetism: {{ prevMagnetism }}</p> -->
 
           <p>J = 1</p>
           <input type="range" min="0.01" max="10" step=".01" [(ngModel)]="T" />{{ T }}
           <p>Critical Is 2.269</p>
+
+          <app-energy-plot #energyPlot style="border: 1px solid"></app-energy-plot>
+
+          <app-magnetism-plot #magnetismPlot></app-magnetism-plot>
         </div>
       </div>
     </div>
@@ -24,6 +30,9 @@ import { Component } from "@angular/core";
   styles: [],
 })
 export class AppComponent {
+  @ViewChild("energyPlot") energyPlot!: EnergyPlotComponent;
+  @ViewChild("magnetismPlot") magnetismPlot!: MagnetismPlotComponent;
+
   cellWidth = 5;
   ctx!: CanvasRenderingContext2D;
 
@@ -36,8 +45,6 @@ export class AppComponent {
 
   prevEnergy = 0;
   prevMagnetism = 0;
-  prevEnergies = [];
-  prevMagnetisms = [];
 
   constructor() {
     this.grid = this.makeGrid();
@@ -88,7 +95,7 @@ export class AppComponent {
 
   loop() {
     setTimeout(() => {
-      for (let i = 0; i < 100000; i++) {
+      for (let i = 0; i < 10000; i++) {
         this.step();
       }
 
@@ -99,6 +106,17 @@ export class AppComponent {
       if (this.calculateMagnetism() != this.prevMagnetism) {
         alert("invalid magnetism");
       }
+
+      // this.prevEnergies.push(this.prevEnergy);
+      // this.prevSteps.push(this.time);
+
+      this.energyPlot.addPoint(this.time, this.prevEnergy);
+      this.magnetismPlot.addPoint(this.time, this.prevMagnetism);
+
+      // this.prevEnergies = this.prevEnergies.slice(-20);
+      // this.prevSteps = this.prevSteps.slice(-20);
+
+      // console.log(this.prevEnergies);
 
       this.loop();
     }, 0);
@@ -136,11 +154,10 @@ export class AppComponent {
 
     this.set(x, y, this.at(x, y) * -1);
 
+    let dE = this.calculateChangeInEnergy(x, y);
     let newEnergy = this.prevEnergy + this.calculateChangeInEnergy(x, y);
 
-    // console.log(newEnergy, this.prevEnergy + this.calculateChangeInEnergy(x, y));
-
-    if (newEnergy < this.prevEnergy || Math.random() < Math.exp(-this.calculateChangeInEnergy(x, y) / this.T)) {
+    if (newEnergy < this.prevEnergy || Math.random() < Math.exp(-dE / this.T)) {
       this.prevEnergy = newEnergy;
       this.prevMagnetism += 2 * this.at(x, y);
       this.drawSpot(x, y, this.at(x, y));
