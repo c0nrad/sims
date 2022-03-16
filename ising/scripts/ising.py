@@ -1,128 +1,133 @@
-import itertools
 import math
+import matplotlib.pyplot as plt
+import random
 
 
+class Ising:
+    def __init__(self, gridSize: int, T: float):
+        self.gridSize = gridSize
+        self.T = T
+        self.reset()
 
-def probability_towards_black(pb, T):
-    pb = 
+    def reset(self):
+        self.i = 0
+        self.grid = [[random.choice([-1, 1]) for i in range(self.gridSize)] for j in range(self.gridSize)]
+        self.prevEnergy = self.calculateEnergy()
 
-    total = 0.0
+    def plot(self):
+        plt.imshow(self.grid)
+        plt.show()
 
-    towards_black = 0
-    towards_white = 0
-    do_nothing = 0
+    def at(self, x: int, y: int) -> int:
+        return self.grid[x % self.gridSize][y % self.gridSize]
 
-    for state in itertools.product([0, 1], repeat=5):
-        p = 1
-        for c in state:
-            if c == 1:
-                p *= pb
-            if c == 0:
-                p *= 1 - pb
+    def calculateEnergy(self) -> float:
+        out = 0
+        for i in range(self.gridSize):
+            for sweep in range(self.gridSize):
+                out += -self.at(i, sweep) * self.at(i + 1, sweep)
+                out += -self.at(sweep, i) * self.at(sweep, i + 1)
+        return out
+
+    def calculateMagnatism(self) -> float:
+        out = 0
+        for x in range(self.gridSize):
+            for y in range(self.gridSize):
+                out += self.at(x, y)
+
+        return out / (self.gridSize * self.gridSize)
+
+    def step(self):
+        x = int(self.gridSize * random.random())
+        y = int(self.gridSize * random.random())
+
+        self.grid[x][y] *= -1
+
+        spot = self.at(x, y)
 
         dE = 0
-        if state[0] == 0:
-            dE = 2 * state[1:].count(0) + -2 * state[1:].count(1)
-        if state[0] == 1:
-            dE = -2 * state[1:].count(0) + 2 * state[1:].count(1)
+        dE -= self.at(x - 1, y) + self.at(x + 1, y) + self.at(x, y + 1) + self.at(x, y - 1)
+        dE *= spot * 2
 
-        # print(str(state[0]), "".join([str(i) for i in state[1:]]), p, dE)
-        total += p
+        newEnergy = self.prevEnergy + dE
 
-        # Towards Black
-        if state[0] == 0:
-            if dE <= 0:
-                towards_black += p
-            else:
-                towards_black += p * (math.exp(-dE / T))
+        if newEnergy < self.prevEnergy or random.random() < math.exp(-dE / self.T):
+            self.prevEnergy = newEnergy
+        else:
+            self.grid[x][y] *= -1
 
-        # Do nothing
-        if dE > 0:
-            do_nothing += p * (1 - math.exp(-dE / T))
-            # towards_black += p * (1 - math.exp(-dE / T))
+        # self.i += 1
 
-        # Towards White
-        if state[0] == 1:
-            if dE <= 0:
-                towards_white += p
-            else:
-                towards_white += p * (math.exp(-dE / T))
+    def loop(self, steps):
+        for i in range(steps):
+            self.step()
+        self.i += steps
 
-    # print("total", total)
-    # print("towards black", towards_black)
-    # print('towards white', towards_white)
-    # print("do nothing", do_nothing)
-    print("sum", towards_white + towards_black + do_nothing)
+        assert self.calculateEnergy() == self.prevEnergy
 
-    if abs(towards_white + towards_black + do_nothing - 1) > 0.01:
-        print("bad sum")
-        exit(1)
-
-    # towards_black_final = towards_black
-    # for i in range(1, 2000):
-    #   towards_black_final += towards_black * ((do_nothing) ** i)
-    towards_black_final = towards_black / (1 - do_nothing)
-
-    print(f'pb={pb :.2f} T={T:.2f}, TowardsBlack={towards_black_final:.3f}')
-
-    return towards_black_final
+    def calculateCorrelation(self):
+        total = 0
+        for x in range(self.gridSize):
+            for y in range(self.gridSize):
+                out = 0
+                if self.at(x, y) == self.at(x + 1, y):
+                    out += 1
+                if self.at(x, y) == self.at(x - 1, y):
+                    out += 1
+                if self.at(x, y) == self.at(x, y + 1):
+                    out += 1
+                if self.at(x, y) == self.at(x, y - 1):
+                    out += 1
+                total += out / 4
+        return total / self.gridSize ** 2
 
 
-import matplotlib.pyplot as plt
-import numpy as np
+if __name__ == "__main__":
 
-maxy = 1
+    import time
 
-T = 2.24
-for pb in np.arange(0.01, 0.51, 0.01):
-    b = probability_towards_black(pb, T)
-    assert b < maxy, "b should be less" + str(b - maxy)
-    maxy = b
+    gridS = 128
+    m = Ising(gridS, 2)
 
-print("no upward")
-# [probability_towards_black(pb, t) - 0.5 for pb in pbs]
+    Ts = [x / 10.0 for x in range(1, 50, 1)]
+    print(Ts)
+    # Ts = np.arange(0.1, 4, 0.2)
+    Cs = []
+    Ms = []
 
+    fig = plt.figure(constrained_layout=True, figsize=(10, 10))
 
-exit(0)
+    i = 1
 
+    steps = 1000000000
 
-# Ts = [0.01, 1, 2, 2.269185, 2.5, 3, 4, 5]
-# Ts = [2.1, 2.2, 2.3, 2.4]
-# Ts = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+    for t in Ts:
+        print(t)
+        m.reset()
+        m.T = t
 
-Ts = np.arange(1.9, 2.4, 0.05)
+        m.loop(steps)
 
-pbs = np.arange(0.01, 0.51, 0.01)
+        Cs.append(abs(m.calculateCorrelation()))
+        Ms.append(abs(m.calculateMagnatism()))
 
-for t in Ts:
-    ys = [probability_towards_black(pb, t) - 0.5 for pb in pbs]
+        ax = fig.add_subplot(math.ceil(len(Ts) / 7), 7, i)
+        ax.imshow(m.grid)
+        ax.axis('off')
+        ax.set_title(f'T={t}')
+        i += 1
 
-    plt.plot(pbs, ys, label="T=" + str(t))  # plotting t, a separately
+        # m.plot()
 
-    plt.xlabel("Probability of Black")
-    plt.ylabel("Move towards Black")
+        # time.sleep(1)
 
-# plt.xticks()
-plt.xticks(np.arange(0, 1, 0.1))
-plt.yticks(np.arange(0, 1, 0.1))
+    fig.suptitle(f'2D Ising: Steps={steps}, Grid={gridS}')
+    plt.show()
+    plt.close()
 
-plt.legend()
-plt.grid(True)
-plt.show()
-# plt.show(block=False)
-# plt.pause(10)
-# plt.close()
-
-
-# from scipy.optimize import fsolve
-# from functools import partial
-
-# print(
-#     fsolve(
-#         partial(
-#             lambda T, pb: probability_towards_black(pb, T) - 0.5,
-#             1.5,
-#         ),
-#         0.2,
-#     )
-# )
+    # plt.figure()
+    plt.plot(Ts, Cs, label="Correlation")
+    plt.plot(Ts, Ms, label="Magnetism")
+    plt.title(f'2D Ising: Steps={steps}, Grid={gridS}')
+    plt.legend()
+    plt.show()

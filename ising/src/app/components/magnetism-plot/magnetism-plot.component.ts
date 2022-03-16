@@ -23,6 +23,10 @@ export class MagnetismPlotComponent implements OnInit {
     this.chart.update();
   }
 
+  clear() {
+    this.data.length = 0;
+  }
+
   constructor() {}
 
   ngOnInit(): void {}

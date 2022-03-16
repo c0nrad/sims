@@ -2,7 +2,7 @@ import { Component, ElementRef, Input, OnInit, Output, SimpleChanges, ViewChild 
 import { Chart, Point } from "chart.js";
 
 @Component({
-  selector: "app-energy-plot",
+  selector: "app-simple-plot",
   template: `
     <div style="display: block;">
       <canvas #chart width="600" height="200"></canvas>
@@ -10,14 +10,13 @@ import { Chart, Point } from "chart.js";
   `,
   styles: [],
 })
-export class EnergyPlotComponent implements OnInit {
+export class SimplePlotComponent implements OnInit {
   @ViewChild("chart")
   private chartRef!: ElementRef;
   private chart!: Chart;
   private data: Point[] = [];
 
-  @Input() prevEnergies: number[] = [];
-  @Input() prevSteps: number[] = [];
+  @Input() title: string = "";
 
   addPoint(x: number, y: number) {
     this.data.push({ x, y });
@@ -40,7 +39,7 @@ export class EnergyPlotComponent implements OnInit {
       data: {
         datasets: [
           {
-            label: "Energy",
+            label: this.title,
             data: this.data,
             fill: false,
             backgroundColor: "black",
@@ -53,7 +52,7 @@ export class EnergyPlotComponent implements OnInit {
         animation: false,
         scales: {
           y: {
-            min: -20000,
+            // min: -20000,
             suggestedMax: 0,
           },
         },
