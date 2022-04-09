@@ -1,14 +1,15 @@
 import { ChangeDetectorRef, Component, NgZone, ViewChild } from "@angular/core";
-import { Complex } from "./complex";
+import { GPU, IKernelRunShortcut } from "gpu.js";
 
 @Component({
   selector: "app-root",
   template: `<div class="container-fluid">
     <div class="row">
       <div class="col-md-6">
-        <canvas width="400" height="200" id="canvas" style="border: 1px solid"> </canvas>
+        <canvas width="400" height="150" id="canvas" style="border: 1px solid"> </canvas>
       </div>
       <div class="col-md-6">
+        <p>FPS: {{ fps | number: "1.1-1" }}</p>
         <pre>{{ constants | json }}</pre>
         <!-- {{ psi_p }} -->
       </div>
@@ -20,7 +21,7 @@ export class AppComponent {
   constants = {
     //display
     width: 400,
-    height: 200,
+    height: 150,
 
     steps_per_update: 20,
 
@@ -37,16 +38,22 @@ export class AppComponent {
     v0: 5,
 
     // calculated
-    c1: new Complex(0, 0),
-    c2: new Complex(0, 0),
+    c1: 0,
+    c2: 0,
     dt: 0,
   };
 
   time = 0;
 
-  psi_present = this.new_grid(this.constants.width, this.constants.height);
-  psi_future = this.new_grid(this.constants.width, this.constants.height);
-  psi_past = this.new_grid(this.constants.width, this.constants.height);
+  psi_present_r = this.new_grid(this.constants.width, this.constants.height);
+  psi_present_i = this.new_grid(this.constants.width, this.constants.height);
+
+  psi_future_r = this.new_grid(this.constants.width, this.constants.height);
+  psi_future_i = this.new_grid(this.constants.width, this.constants.height);
+
+  psi_past_r = this.new_grid(this.constants.width, this.constants.height);
+  psi_past_i = this.new_grid(this.constants.width, this.constants.height);
+
   potential = this.new_grid(this.constants.width, this.constants.height);
   psi_p = this.new_grid(this.constants.width, this.constants.height);
   max_p = 0;
@@ -54,32 +61,68 @@ export class AppComponent {
   // optimization
   c2V = this.new_grid(this.constants.width, this.constants.height);
 
+  gpu!: GPU;
+  leapStepKernel!: IKernelRunShortcut;
+
+  start!: DOMHighResTimeStamp;
+  fps!: number;
+
   constructor() {
     this.initializeConstants();
     this.initializePotential();
     this.initializePsi();
+    this.initializeGPU();
     this.normalize();
   }
 
   ngOnInit() {
+    this.gpuStep();
+    this.drawPotential();
+    this.drawPsi();
+    this.start = performance.now();
     requestAnimationFrame(() => this.animateStep());
+  }
+
+  initializeGPU() {
+    this.gpu = new GPU();
+    this.leapStepKernel = this.gpu.createKernel(
+      function (psi_present_r: number[][], psi_present_i: number[][], psi_past_r: number[][], psi_past_i: number[][], c2V: number[][]): number {
+        //@ts-ignore
+        let c1 = this.constants.c1 as number;
+
+        let x = this.thread.y;
+        let y = this.thread.x;
+
+        if (this.thread.z == 1) {
+          return (
+            c1 * (psi_present_r[x + 1][y] + psi_present_r[x][y + 1] - 4 * psi_present_r[x][y] + psi_present_r[x - 1][y] + psi_present_r[x][y - 1]) - c2V[x][y] * psi_present_r[x][y] + psi_past_i[x][y]
+          );
+        }
+
+        if (this.thread.z == 0) {
+          return (
+            -c1 * (psi_present_i[x + 1][y] + psi_present_i[x][y + 1] - 4 * psi_present_i[x][y] + psi_present_i[x - 1][y] + psi_present_i[x][y - 1]) + c2V[x][y] * psi_present_i[x][y] + psi_past_r[x][y]
+          );
+        }
+        return 0;
+      },
+      {
+        output: [this.constants.height, this.constants.width, 2],
+        constants: { c1: this.constants.c1 },
+        optimizeFloatMemory: true,
+        tactic: "speed",
+      }
+    );
   }
 
   initializeConstants() {
     this.constants.dt = this.constants.hbar / ((2 * this.constants.hbar ** 2) / (this.constants.mass * this.constants.dx ** 2) + this.constants.v0);
-    this.constants.c1 = new Complex(0, (this.constants.dt * this.constants.hbar) / 2 / this.constants.mass);
-    this.constants.c2 = new Complex(0, -this.constants.dt / this.constants.hbar);
+    this.constants.c1 = (this.constants.dt * this.constants.hbar) / 2 / this.constants.mass;
+    this.constants.c2 = this.constants.dt / this.constants.hbar;
   }
 
-  new_grid(width: number, height: number): Complex[][] {
-    let out = new Array(width).fill(false).map(() => new Array(height).fill(new Complex(0, 0)));
-
-    // delete me?
-    for (let y = 0; y < this.constants.height; y++) {
-      for (let x = 0; x < this.constants.width; x++) {
-        out[x][y] = new Complex(0, 0);
-      }
-    }
+  new_grid(width: number, height: number): Float32Array[] {
+    let out = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
     return out;
   }
 
@@ -88,23 +131,23 @@ export class AppComponent {
   }
 
   initializePotential() {
-    for (let x = Math.round((2 * this.constants.width) / 3); x < Math.round((2 * this.constants.width) / 3) + 10; x++) {
+    for (let x = Math.round((1 * this.constants.width) / 2); x < Math.round((1 * this.constants.width) / 2) + 5; x++) {
       for (let y = 0; y < (3 * this.constants.height) / 10; y++) {
-        this.potential[x][y] = new Complex(this.constants.v0, 0);
+        this.potential[x][y] = this.constants.v0;
       }
 
       for (let y = (4 * this.constants.height) / 10; y < (6 * this.constants.height) / 10; y++) {
-        this.potential[x][y] = new Complex(this.constants.v0, 0);
+        this.potential[x][y] = this.constants.v0;
       }
 
       for (let y = (7 * this.constants.height) / 10; y < this.constants.height; y++) {
-        this.potential[x][y] = new Complex(this.constants.v0, 0);
+        (this.potential[x][y] = this.constants.v0), 0;
       }
     }
 
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.c2V[x][y] = this.constants.c2.mul(this.potential[x][y]);
+        this.c2V[x][y] = this.constants.c2 * this.potential[x][y];
       }
     }
   }
@@ -112,15 +155,11 @@ export class AppComponent {
   initializePsi() {
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_present[x][y] = new Complex(
-          Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma),
-          Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma)
-        );
+        this.psi_present_r[x][y] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_present_i[x][y] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
 
-        this.psi_past[x][y] = new Complex(
-          Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma),
-          Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma)
-        );
+        this.psi_past_r[x][y] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_past_i[x][y] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
       }
     }
   }
@@ -129,8 +168,8 @@ export class AppComponent {
     let norm = 0;
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_p[x][y] = new Complex(this.psi_present[x][y].real ** 2 + this.psi_present[x][y].imag ** 2, 0);
-        norm += this.psi_p[x][y].real;
+        this.psi_p[x][y] = this.psi_present_r[x][y] ** 2 + this.psi_present_i[x][y] ** 2;
+        norm += this.psi_p[x][y];
       }
     }
     norm = Math.sqrt(norm);
@@ -139,8 +178,11 @@ export class AppComponent {
 
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_present[x][y] = this.psi_present[x][y].div(new Complex(norm, 0));
-        this.psi_past[x][y] = this.psi_past[x][y].div(new Complex(norm, 0));
+        this.psi_present_r[x][y] /= norm;
+        this.psi_present_i[x][y] /= norm;
+
+        this.psi_past_r[x][y] /= norm;
+        this.psi_past_i[x][y] /= norm;
       }
     }
   }
@@ -149,14 +191,12 @@ export class AppComponent {
     var canvas = document.getElementById("canvas") as HTMLCanvasElement;
     var ctx = canvas!.getContext("2d")!;
 
+    ctx.fillStyle = "black";
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        if (this.potential[x][y].real == 0) {
+        if (this.potential[x][y] == 0) {
           continue;
         }
-        let fill = Math.floor(255 - 255 * this.potential[x][y].real);
-        ctx.fillStyle = `rgb(
-          ${fill}, ${fill}, ${fill})`;
         ctx.fillRect(x, y, 1, 1); // fill in the pixel at (10,10)
       }
     }
@@ -166,67 +206,85 @@ export class AppComponent {
     var canvas = document.getElementById("canvas") as HTMLCanvasElement;
     var ctx = canvas!.getContext("2d")!;
 
+    var imgData = ctx.createImageData(this.constants.width, this.constants.height);
+
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        // if (this.psi_p[x][y].real / this.max_p < 0.01) {
-        //   continue;
-        // }
-        let fill = Math.floor(255 - 255 * (this.psi_p[x][y].real / this.max_p));
-        ctx.fillStyle = `rgb(
-          ${fill}, ${fill}, ${fill}, .5)`;
-        ctx.fillRect(x, y, 1, 1); // fill in the pixel at (10,10)
+        let fill = Math.floor(255 - Math.round(255 * (this.psi_p[x][y] / this.max_p)));
+
+        let index = 4 * (this.constants.width * y + x);
+
+        imgData.data[index + 0] = fill;
+        imgData.data[index + 1] = fill;
+        imgData.data[index + 2] = fill;
+        imgData.data[index + 3] = 255;
       }
     }
+    // console.log(imgData);
+    ctx.putImageData(imgData, 0, 0);
   }
 
   animateStep() {
-    for (let i = 0; i < this.constants.steps_per_update - 1; i++) {
-      this.step(false);
+    for (let i = 0; i < this.constants.steps_per_update; i++) {
+      this.gpuStep();
     }
-    this.step(true);
+    this.gpuStep(true);
 
-    this.drawPotential();
     this.drawPsi();
+    this.drawPotential();
 
     requestAnimationFrame(() => {
       this.animateStep();
     });
   }
 
-  gpuStep() {}
+  gpuStep(update_p = false) {
+    // nice
 
-  step(updateP = true) {
+    let out = this.leapStepKernel(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V) as Float32Array[][];
+    [this.psi_future_r, this.psi_future_i] = out;
+    this.max_p = 0;
+
+    this.psi_past_r = this.psi_present_r;
+    this.psi_present_r = this.psi_future_r;
+
+    this.psi_past_i = this.psi_present_i;
+    this.psi_present_i = this.psi_future_i;
+
+    if (update_p) {
+      for (let y = 0; y < this.constants.height; y++) {
+        for (let x = 0; x < this.constants.width; x++) {
+          this.psi_p[x][y] = this.psi_present_r[x][y] ** 2 + this.psi_present_i[x][y] ** 2;
+
+          if (this.psi_p[x][y] > this.max_p) {
+            this.max_p = this.psi_p[x][y];
+          }
+        }
+      }
+      this.fps = (this.time / (performance.now() - this.start)) * 1000;
+    }
+
+    this.time += 1;
+  }
+
+  step() {
     if (this.time % 100 == 0) {
       console.log(this.time);
     }
 
-    let leapTemp = new Complex(0, 0);
-
-    this.max_p = 0;
-    for (let y = 1; y < this.constants.height - 1; y++) {
-      for (let x = 1; x < this.constants.width - 1; x++) {
-        let leapReal = this.psi_present[x + 1][y].real + this.psi_present[x][y + 1].real + this.psi_present[x - 1][y].real + this.psi_present[x][y - 1].real - this.psi_present[x][y].real * 4;
-        let leapImag = this.psi_present[x + 1][y].imag + this.psi_present[x][y + 1].imag + this.psi_present[x - 1][y].imag + this.psi_present[x][y - 1].imag - this.psi_present[x][y].imag * 4;
-        leapTemp.set(leapReal, leapImag);
-
-        this.psi_future[x][y].set(
-          leapTemp.mul(this.constants.c1).real - this.c2V[x][y].mul(this.psi_present[x][y]).real + this.psi_past[x][y].real,
-          leapTemp.mul(this.constants.c1).imag - this.c2V[x][y].mul(this.psi_present[x][y]).imag + this.psi_past[x][y].imag
-        );
-
-        if (updateP) {
-          this.psi_p[x][y].set(this.psi_future[x][y].real ** 2 + this.psi_future[x][y].imag ** 2, 0);
-          if (this.max_p < this.psi_p[x][y].real) {
-            this.max_p = this.psi_p[x][y].real;
-          }
-        }
-      }
-    }
+    // [this.psi_future_r, this.psi_future_i, this.psi_p] = leapStep(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V);
 
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_past[x][y].set(this.psi_present[x][y].real, this.psi_present[x][y].imag);
-        this.psi_present[x][y].set(this.psi_future[x][y].real, this.psi_future[x][y].imag);
+        this.psi_past_r[x][y] = this.psi_present_r[x][y];
+        this.psi_present_r[x][y] = this.psi_future_r[x][y];
+
+        this.psi_past_i[x][y] = this.psi_present_i[x][y];
+        this.psi_present_i[x][y] = this.psi_future_i[x][y];
+
+        if (this.psi_p[x][y] > this.max_p) {
+          this.max_p = this.psi_p[x][y];
+        }
       }
     }
 
