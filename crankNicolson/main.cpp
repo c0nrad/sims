@@ -5,16 +5,17 @@
 
 using Eigen::SparseMatrix;
 using Eigen::VectorXcd;
-
 using namespace std;
+
+typedef Eigen::Triplet<complex<double>> T;
 
 const int N = 5000;
 const double L = 1.0e-10;
 const double dx = L / N;
-const double dt = 1.0e-18;
-const double k = 5e10;
+const double dt = 1.0e-19;
+const double k = 5e11;
 const double m = 9.109e-31;
-const double sigma = 1.0e-10;
+const double sigma = 5.0e-12;
 const double x0 = L / 2;
 const double hbar = 1.05457183e-34;
 
@@ -30,32 +31,42 @@ void initialize_crankNicolson_b(SparseMatrix<complex<double>>& B) {
     complex<double> b1 = complex<double>(1, -dt * hbar / (2 * m * pow(dx, 2)));
     complex<double> b2 = complex<double>(0, dt * hbar / (4 * m * pow(dx, 2)));
 
-    B.insert(0, 0) = b1;
-    B.insert(0, 1) = b2;
-    B.insert(N - 1, N - 2) = b2;
-    B.insert(N - 1, N - 1) = b1;
+    typedef Eigen::Triplet<complex<double>> T;
+    std::vector<T> tripletList;
+    tripletList.reserve(3 * N);
+
+    tripletList.push_back(T(0, 0, b1));
+    tripletList.push_back(T(0, 1, b2));
+    tripletList.push_back(T(N - 1, N - 2, b2));
+    tripletList.push_back(T(N - 1, N - 1, b1));
 
     for (int i = 1; i < N - 1; i++) {
-        B.insert(i, i - 1) = b2;
-        B.insert(i, i) = b1;
-        B.insert(i, i + 1) = b2;
+        tripletList.push_back(T(i, i - 1, b2));
+        tripletList.push_back(T(i, i, b1));
+        tripletList.push_back(T(i, i + 1, b2));
     }
+    B.setFromTriplets(tripletList.begin(), tripletList.end());
 }
 
 void initialize_crankNicolson_a(SparseMatrix<complex<double>>& A) {
     complex<double> a1 = complex<double>(1, dt * hbar / (2 * m * pow(dx, 2)));
     complex<double> a2 = complex<double>(0, -dt * hbar / (4 * m * pow(dx, 2)));
 
-    A.insert(0, 0) = a1;
-    A.insert(0, 1) = a2;
-    A.insert(N - 1, N - 2) = a2;
-    A.insert(N - 1, N - 1) = a1;
+    typedef Eigen::Triplet<complex<double>> T;
+    std::vector<T> tripletList;
+    tripletList.reserve(3 * N);
+
+    tripletList.push_back(T(0, 0, a1));
+    tripletList.push_back(T(0, 1, a2));
+    tripletList.push_back(T(N - 1, N - 2, a2));
+    tripletList.push_back(T(N - 1, N - 1, a1));
 
     for (int i = 1; i < N - 1; i++) {
-        A.insert(i, i - 1) = a2;
-        A.insert(i, i) = a1;
-        A.insert(i, i + 1) = a2;
+        tripletList.push_back(T(i, i - 1, a2));
+        tripletList.push_back(T(i, i, a1));
+        tripletList.push_back(T(i, i + 1, a2));
     }
+    A.setFromTriplets(tripletList.begin(), tripletList.end());
 }
 
 VectorXcd thomasSolve(SparseMatrix<complex<double>> A, VectorXcd v) {
@@ -82,23 +93,47 @@ VectorXcd thomasSolve(SparseMatrix<complex<double>> A, VectorXcd v) {
     return view.solve(v);
 }
 
-VectorXcd step(VectorXcd& psi, SparseMatrix<complex<double>>& A, const SparseMatrix<complex<double>>& B) {
+void dump_probabilities(VectorXcd out) {
+    cout << "# x\tpsi^2" << endl;
+    for (int i = 0; i < N; i++) {
+        cout << i << "\t" << pow(out(i).real(), 2) + pow(out(i).imag(), 2) << endl;
+    }
+}
+
+void normalize_psi(VectorXcd& psi) {
+    double norm = 0;
+    for (int i = 0; i < N; i++) {
+        norm += pow(psi(i).real(), 2) + pow(psi(i).imag(), 2);
+    }
+    psi /= sqrt(norm);
+}
+
+VectorXcd step(VectorXcd& psi, const SparseMatrix<complex<double>>& A, const SparseMatrix<complex<double>>& B) {
     VectorXcd v = B * psi;
+
+    // cout << "IS Approx? " << A.toDense().colPivHouseholderQr().solve(v).isApprox(thomasSolve(A, v)) << endl;
+    // cout << "Official: " << A.toDense().colPivHouseholderQr().solve(v) << endl;
+    // cout << "Thomas: " << thomasSolve(A, v) << endl;
+
     return thomasSolve(A, v);
 }
 
 int main() {
     VectorXcd psi(N);
     initialize_gaussian_wave(psi);
+    normalize_psi(psi);
 
-    SparseMatrix<complex<double>> A(N, N);
+    SparseMatrix<complex<double>>
+        A(N, N);
     SparseMatrix<complex<double>> B(N, N);
 
     initialize_crankNicolson_a(A);
     initialize_crankNicolson_b(B);
 
-    for (int i = 0; i < 100; i++) {
-        cout << i << endl;
+    for (int i = 0; i < 500; i++) {
+        dump_probabilities(psi);
+        cout << "\n"
+             << endl;
         psi = step(psi, A, B);
     }
 }
