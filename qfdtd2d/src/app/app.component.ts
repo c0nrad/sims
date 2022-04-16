@@ -226,9 +226,11 @@ export class AppComponent {
 
   animateStep() {
     for (let i = 0; i < this.constants.steps_per_update; i++) {
-      this.gpuStep();
+      // this.gpuStep();
+      this.step(false);
     }
-    this.gpuStep(true);
+    this.step(true);
+    // this.gpuStep(true);
 
     this.drawPsi();
     this.drawPotential();
@@ -239,10 +241,13 @@ export class AppComponent {
   }
 
   gpuStep(update_p = false) {
-    // nice
-
     let out = this.leapStepKernel(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V) as Float32Array[][];
     [this.psi_future_r, this.psi_future_i] = out;
+
+    this.stepCleanup(update_p);
+  }
+
+  stepCleanup(update_p: boolean) {
     this.max_p = 0;
 
     this.psi_past_r = this.psi_present_r;
@@ -267,27 +272,43 @@ export class AppComponent {
     this.time += 1;
   }
 
-  step() {
-    if (this.time % 100 == 0) {
-      console.log(this.time);
-    }
+  step(update_p = false) {
+    [this.psi_future_r, this.psi_future_i] = this.forwardEulerStep(
+      this.psi_present_r,
+      this.psi_present_i,
+      this.psi_past_r,
+      this.psi_past_i,
+      this.c2V,
+      this.constants.c1,
+      this.constants.width,
+      this.constants.height
+    );
 
-    // [this.psi_future_r, this.psi_future_i, this.psi_p] = leapStep(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V);
+    this.stepCleanup(update_p);
+  }
 
-    for (let y = 0; y < this.constants.height; y++) {
-      for (let x = 0; x < this.constants.width; x++) {
-        this.psi_past_r[x][y] = this.psi_present_r[x][y];
-        this.psi_present_r[x][y] = this.psi_future_r[x][y];
+  forwardEulerStep(
+    psi_present_r: Float32Array[],
+    psi_present_i: Float32Array[],
+    psi_past_r: Float32Array[],
+    psi_past_i: Float32Array[],
+    c2V: Float32Array[],
+    c1: number,
+    width: number,
+    height: number
+  ): Float32Array[][] {
+    let psi_future_r = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
+    let psi_future_i = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
 
-        this.psi_past_i[x][y] = this.psi_present_i[x][y];
-        this.psi_present_i[x][y] = this.psi_future_i[x][y];
-
-        if (this.psi_p[x][y] > this.max_p) {
-          this.max_p = this.psi_p[x][y];
-        }
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        psi_future_i[x][y] =
+          c1 * (psi_present_r[x + 1][y] + psi_present_r[x][y + 1] - 4 * psi_present_r[x][y] + psi_present_r[x - 1][y] + psi_present_r[x][y - 1]) - c2V[x][y] * psi_present_r[x][y] + psi_past_i[x][y];
+        psi_future_r[x][y] =
+          -c1 * (psi_present_i[x + 1][y] + psi_present_i[x][y + 1] - 4 * psi_present_i[x][y] + psi_present_i[x - 1][y] + psi_present_i[x][y - 1]) + c2V[x][y] * psi_present_i[x][y] + psi_past_r[x][y];
       }
     }
 
-    this.time += 1;
+    return [psi_future_r, psi_future_i];
   }
 }
