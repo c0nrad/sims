@@ -11,6 +11,7 @@ import { GPU, IKernelRunShortcut, input, Input } from "gpu.js";
       <div class="col-md-6">
         <p>FPS: {{ fps | number: "1.1-1" }}</p>
         <pre>{{ constants | json }}</pre>
+        <!-- {{ potential }} -->
         <!-- {{ psi_p }} -->
       </div>
     </div>
@@ -83,38 +84,51 @@ export class AppComponent {
     this.drawPsi();
 
     this.start = performance.now();
+    // this.animateStep();
     requestAnimationFrame(() => this.animateStep());
   }
 
   initializeGPU() {
     this.gpu = new GPU();
+    // this.gpu.addFunction();
     this.leapStepKernel = this.gpu.createKernel(
-      function (psi_present_r: number[][], psi_present_i: number[][], psi_past_r: number[][], psi_past_i: number[][], c2V: number[][]): number {
+      function (psi_present_r: Float32Array, psi_present_i: Float32Array, psi_past_r: Float32Array, psi_past_i: Float32Array, c2V: Float32Array): number {
         //@ts-ignore
         let c1 = this.constants.c1 as number;
+        // @ts-ignore
+        let width = this.constants.width as number;
+        // @ts-ignore
+        let height = this.constants.height as number;
 
-        let x = this.thread.y;
-        let y = this.thread.x;
+        let i = this.thread.x;
+        let z = this.thread.y;
 
-        if (this.thread.z == 1) {
+        let x = i % width;
+        let y = Math.floor(i / width);
+
+        if (z == 1) {
           return (
-            c1 * (psi_present_r[x + 1][y] + psi_present_r[x][y + 1] - 4 * psi_present_r[x][y] + psi_present_r[x - 1][y] + psi_present_r[x][y - 1]) - c2V[x][y] * psi_present_r[x][y] + psi_past_i[x][y]
+            c1 * (psi_present_r[y * width + x + 1] + psi_present_r[(y + 1) * width + x] - 4 * psi_present_r[y * width + x] + psi_present_r[y * width + x - 1] + psi_present_r[(y - 1) * width + x]) -
+            c2V[y * width + x] * psi_present_r[y * width + x] +
+            psi_past_i[y * width + x]
           );
         }
 
-        if (this.thread.z == 0) {
+        if (z == 0) {
           return (
-            -c1 * (psi_present_i[x + 1][y] + psi_present_i[x][y + 1] - 4 * psi_present_i[x][y] + psi_present_i[x - 1][y] + psi_present_i[x][y - 1]) + c2V[x][y] * psi_present_i[x][y] + psi_past_r[x][y]
+            -c1 * (psi_present_i[y * width + x + 1] + psi_present_i[(y + 1) * width + x] - 4 * psi_present_i[y * width + x] + psi_present_i[y * width + x - 1] + psi_present_i[(y - 1) * width + x]) +
+            c2V[y * width + x] * psi_present_i[y * width + x] +
+            psi_past_r[y * width + x]
           );
         }
         return 0;
       },
       {
-        output: [this.constants.height, this.constants.width, 2],
-        constants: { c1: this.constants.c1 },
+        output: [this.constants.height * this.constants.width, 2],
+        constants: { c1: this.constants.c1, width: this.constants.width, height: this.constants.height },
         optimizeFloatMemory: true,
         tactic: "speed",
-        // argumentTypes: { psi_present_r: "Array", b: "Array(2)" },
+        // argumentTypes: { psi_present_r: `Float32Array` },
       }
     );
   }
@@ -125,9 +139,9 @@ export class AppComponent {
     this.constants.c2 = this.constants.dt / this.constants.hbar;
   }
 
-  new_grid(width: number, height: number): Float32Array[] {
-    let out = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
-    return out;
+  new_grid(width: number, height: number): Float32Array {
+    return new Float32Array(width * height).fill(0); //.map(() => new Float32Array(height).fill(0));
+    // return out;
   }
 
   gaussian(x: number, y: number, a: number, b: number, sigma: number): number {
@@ -137,21 +151,21 @@ export class AppComponent {
   initializePotential() {
     for (let x = Math.round((1 * this.constants.width) / 2); x < Math.round((1 * this.constants.width) / 2) + 5; x++) {
       for (let y = 0; y < (3 * this.constants.height) / 10; y++) {
-        this.potential[x][y] = this.constants.v0;
+        this.potential[this.index2D(x, y)] = this.constants.v0;
       }
 
       for (let y = (4 * this.constants.height) / 10; y < (6 * this.constants.height) / 10; y++) {
-        this.potential[x][y] = this.constants.v0;
+        this.potential[this.index2D(x, y)] = this.constants.v0;
       }
 
       for (let y = (7 * this.constants.height) / 10; y < this.constants.height; y++) {
-        (this.potential[x][y] = this.constants.v0), 0;
+        (this.potential[this.index2D(x, y)] = this.constants.v0), 0;
       }
     }
 
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.c2V[x][y] = this.constants.c2 * this.potential[x][y];
+        this.c2V[this.index2D(x, y)] = this.constants.c2 * this.potential[this.index2D(x, y)];
       }
     }
   }
@@ -159,11 +173,11 @@ export class AppComponent {
   initializePsi() {
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_present_r[x][y] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
-        this.psi_present_i[x][y] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_present_r[this.index2D(x, y)] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_present_i[this.index2D(x, y)] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
 
-        this.psi_past_r[x][y] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
-        this.psi_past_i[x][y] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_past_r[this.index2D(x, y)] = Math.cos(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
+        this.psi_past_i[this.index2D(x, y)] = Math.sin(this.constants.k0 * x) * this.gaussian(x, y, this.constants.width / 4, this.constants.height / 2, this.constants.sigma);
       }
     }
   }
@@ -172,21 +186,19 @@ export class AppComponent {
     let norm = 0;
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_p[x][y] = this.psi_present_r[x][y] ** 2 + this.psi_present_i[x][y] ** 2;
-        norm += this.psi_p[x][y];
+        this.psi_p[this.index2D(x, y)] = this.psi_present_r[this.index2D(x, y)] ** 2 + this.psi_present_i[this.index2D(x, y)] ** 2;
+        norm += this.psi_p[this.index2D(x, y)];
       }
     }
     norm = Math.sqrt(norm);
 
-    console.log("Norm", norm);
-
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        this.psi_present_r[x][y] /= norm;
-        this.psi_present_i[x][y] /= norm;
+        this.psi_present_r[this.index2D(x, y)] /= norm;
+        this.psi_present_i[this.index2D(x, y)] /= norm;
 
-        this.psi_past_r[x][y] /= norm;
-        this.psi_past_i[x][y] /= norm;
+        this.psi_past_r[this.index2D(x, y)] /= norm;
+        this.psi_past_i[this.index2D(x, y)] /= norm;
       }
     }
   }
@@ -198,7 +210,7 @@ export class AppComponent {
     ctx.fillStyle = "black";
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        if (this.potential[x][y] == 0) {
+        if (this.potential[this.index2D(x, y)] == 0) {
           continue;
         }
         ctx.fillRect(x, y, 1, 1); // fill in the pixel at (10,10)
@@ -214,7 +226,7 @@ export class AppComponent {
 
     for (let y = 0; y < this.constants.height; y++) {
       for (let x = 0; x < this.constants.width; x++) {
-        let fill = Math.floor(255 - Math.round(255 * (this.psi_p[x][y] / this.max_p)));
+        let fill = Math.floor(255 - Math.round(255 * (this.psi_p[this.index2D(x, y)] / this.max_p)));
 
         let index = 4 * (this.constants.width * y + x);
 
@@ -248,30 +260,38 @@ export class AppComponent {
   //   return a.map();
   // }
 
-  // get2D(x: number, y: number) {
+  // get2D(x: number, y: number, arr: Float32Array) {
+  //   return arr[this.constants.height * y + x];
+  // }
+
+  index2D(x: number, y: number): number {
+    return this.constants.width * y + x;
+  }
 
   gpuStep(update_p = false) {
-    let out = this.leapStepKernel(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V) as Float32Array[][];
+    let out = this.leapStepKernel(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V) as Float32Array[];
+
     [this.psi_future_r, this.psi_future_i] = out;
+    // console.log(out);
 
     this.stepCleanup(update_p);
   }
 
   step(update_p = false) {
-    this.forwardEulerStep(
-      this.psi_present_r,
-      this.psi_present_i,
-      this.psi_past_r,
-      this.psi_past_i,
-      this.c2V,
-      this.constants.c1,
-      this.constants.width,
-      this.constants.height,
+    // this.forwardEulerStep(
+    //   this.psi_present_r,
+    //   this.psi_present_i,
+    //   this.psi_past_r,
+    //   this.psi_past_i,
+    //   this.c2V,
+    //   this.constants.c1,
+    //   this.constants.width,
+    //   this.constants.height,
 
-      //Return
-      this.psi_future_r,
-      this.psi_future_i
-    );
+    //   //Return
+    //   this.psi_future_r,
+    //   this.psi_future_i
+    // );
 
     this.stepCleanup(update_p);
   }
@@ -288,10 +308,10 @@ export class AppComponent {
     if (update_p) {
       for (let y = 0; y < this.constants.height; y++) {
         for (let x = 0; x < this.constants.width; x++) {
-          this.psi_p[x][y] = this.psi_present_r[x][y] ** 2 + this.psi_present_i[x][y] ** 2;
+          this.psi_p[this.index2D(x, y)] = this.psi_present_r[this.index2D(x, y)] ** 2 + this.psi_present_i[this.index2D(x, y)] ** 2;
 
-          if (this.psi_p[x][y] > this.max_p) {
-            this.max_p = this.psi_p[x][y];
+          if (this.psi_p[this.index2D(x, y)] > this.max_p) {
+            this.max_p = this.psi_p[this.index2D(x, y)];
           }
         }
       }
@@ -301,26 +321,40 @@ export class AppComponent {
     this.time += 1;
   }
 
-  forwardEulerStep(
-    psi_present_r: Float32Array[],
-    psi_present_i: Float32Array[],
-    psi_past_r: Float32Array[],
-    psi_past_i: Float32Array[],
-    c2V: Float32Array[],
-    c1: number,
-    width: number,
-    height: number,
-    //
-    psi_future_r: Float32Array[],
-    psi_future_i: Float32Array[]
-  ) {
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        psi_future_i[x][y] =
-          c1 * (psi_present_r[x + 1][y] + psi_present_r[x][y + 1] - 4 * psi_present_r[x][y] + psi_present_r[x - 1][y] + psi_present_r[x][y - 1]) - c2V[x][y] * psi_present_r[x][y] + psi_past_i[x][y];
-        psi_future_r[x][y] =
-          -c1 * (psi_present_i[x + 1][y] + psi_present_i[x][y + 1] - 4 * psi_present_i[x][y] + psi_present_i[x - 1][y] + psi_present_i[x][y - 1]) + c2V[x][y] * psi_present_i[x][y] + psi_past_r[x][y];
-      }
-    }
-  }
+  // forwardEulerStep(
+  //   psi_present_r: Float32Array[],
+  //   psi_present_i: Float32Array[],
+  //   psi_past_r: Float32Array[],
+  //   psi_past_i: Float32Array[],
+  //   c2V: Float32Array[],
+  //   c1: number,
+  //   width: number,
+  //   height: number,
+  //   //
+  //   psi_future_r: Float32Array[],
+  //   psi_future_i: Float32Array[]
+  // ) {
+  //   for (let y = 1; y < height - 1; y++) {
+  //     for (let x = 1; x < width - 1; x++) {
+  //       psi_future_i[this.index2D(x, y)] =
+  //         c1 *
+  //           (psi_present_r[this.index2D(x + 1, y)] +
+  //             psi_present_r[this.index2D(x, y + 1)] -
+  //             4 * psi_present_r[this.index2D(x, y)] +
+  //             psi_present_r[this.index2D(x - 1, y)] +
+  //             psi_present_r[this.index2D(x, y - 1)]) -
+  //         c2V[this.index2D(x, y)] * psi_present_r[this.index2D(x, y)] +
+  //         psi_past_i[this.index2D(x, y)];
+  //       psi_future_r[this.index2D(x, y)] =
+  //         -c1 *
+  //           (psi_present_i[this.index2D(x + 1, y)] +
+  //             psi_present_i[this.index2D(x, y + 1)] -
+  //             4 * psi_present_i[this.index2D(x, y)] +
+  //             psi_present_i[this.index2D(x - 1, y)] +
+  //             psi_present_i[this.index2D(x, y - 1)]) +
+  //         c2V[this.index2D(x, y)] * psi_present_i[this.index2D(x, y)] +
+  //         psi_past_r[this.index2D(x, y)];
+  //     }
+  //   }
+  // }
 }
