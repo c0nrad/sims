@@ -68,8 +68,6 @@ export class AppComponent {
   start!: DOMHighResTimeStamp;
   fps!: number;
 
-  forwardEulerStepWASM: any;
-
   constructor() {
     this.initializeConstants();
     this.initializePotential();
@@ -128,7 +126,6 @@ export class AppComponent {
         constants: { c1: this.constants.c1, width: this.constants.width, height: this.constants.height },
         optimizeFloatMemory: true,
         tactic: "speed",
-        // argumentTypes: { psi_present_r: `Float32Array` },
       }
     );
   }
