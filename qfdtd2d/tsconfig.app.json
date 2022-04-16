@@ -3,7 +3,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/app",
-    "types": ["offscreencanvas"]
+    "types": ["offscreencanvas"],
+    "target": "es2017",
+    "module": "es2022",
   },
   "files": [
     "src/main.ts",
@@ -11,5 +13,6 @@
   ],
   "include": [
     "src/**/*.d.ts"
-  ]
+  ],
+
 }

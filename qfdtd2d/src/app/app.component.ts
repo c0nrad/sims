@@ -1,12 +1,12 @@
 import { ChangeDetectorRef, Component, NgZone, ViewChild } from "@angular/core";
-import { GPU, IKernelRunShortcut } from "gpu.js";
+import { GPU, IKernelRunShortcut, input, Input } from "gpu.js";
 
 @Component({
   selector: "app-root",
   template: `<div class="container-fluid">
     <div class="row">
       <div class="col-md-6">
-        <canvas width="400" height="150" id="canvas" style="border: 1px solid"> </canvas>
+        <canvas width="{{ constants.width }}" height="{{ constants.height }}" id="canvas" style="border: 1px solid"> </canvas>
       </div>
       <div class="col-md-6">
         <p>FPS: {{ fps | number: "1.1-1" }}</p>
@@ -20,8 +20,8 @@ import { GPU, IKernelRunShortcut } from "gpu.js";
 export class AppComponent {
   constants = {
     //display
-    width: 400,
-    height: 150,
+    width: 600,
+    height: 250,
 
     steps_per_update: 20,
 
@@ -32,10 +32,10 @@ export class AppComponent {
 
     //initial pulse
     sigma: 40,
-    k0: Math.PI / 5,
+    k0: Math.PI / 3,
 
     //potential
-    v0: 5,
+    v0: 10,
 
     // calculated
     c1: 0,
@@ -67,6 +67,8 @@ export class AppComponent {
   start!: DOMHighResTimeStamp;
   fps!: number;
 
+  forwardEulerStepWASM: any;
+
   constructor() {
     this.initializeConstants();
     this.initializePotential();
@@ -75,10 +77,11 @@ export class AppComponent {
     this.normalize();
   }
 
-  ngOnInit() {
+  async ngOnInit() {
     this.gpuStep();
     this.drawPotential();
     this.drawPsi();
+
     this.start = performance.now();
     requestAnimationFrame(() => this.animateStep());
   }
@@ -111,6 +114,7 @@ export class AppComponent {
         constants: { c1: this.constants.c1 },
         optimizeFloatMemory: true,
         tactic: "speed",
+        // argumentTypes: { psi_present_r: "Array", b: "Array(2)" },
       }
     );
   }
@@ -226,11 +230,11 @@ export class AppComponent {
 
   animateStep() {
     for (let i = 0; i < this.constants.steps_per_update; i++) {
-      // this.gpuStep();
-      this.step(false);
+      this.gpuStep();
+      // this.stepWASM(false);
     }
-    this.step(true);
-    // this.gpuStep(true);
+    // this.stepWASM(true);
+    this.gpuStep(true);
 
     this.drawPsi();
     this.drawPotential();
@@ -240,9 +244,34 @@ export class AppComponent {
     });
   }
 
+  // flatten(a: Float32Array[]): number[] {
+  //   return a.map();
+  // }
+
+  // get2D(x: number, y: number) {
+
   gpuStep(update_p = false) {
     let out = this.leapStepKernel(this.psi_present_r, this.psi_present_i, this.psi_past_r, this.psi_past_i, this.c2V) as Float32Array[][];
     [this.psi_future_r, this.psi_future_i] = out;
+
+    this.stepCleanup(update_p);
+  }
+
+  step(update_p = false) {
+    this.forwardEulerStep(
+      this.psi_present_r,
+      this.psi_present_i,
+      this.psi_past_r,
+      this.psi_past_i,
+      this.c2V,
+      this.constants.c1,
+      this.constants.width,
+      this.constants.height,
+
+      //Return
+      this.psi_future_r,
+      this.psi_future_i
+    );
 
     this.stepCleanup(update_p);
   }
@@ -272,21 +301,6 @@ export class AppComponent {
     this.time += 1;
   }
 
-  step(update_p = false) {
-    [this.psi_future_r, this.psi_future_i] = this.forwardEulerStep(
-      this.psi_present_r,
-      this.psi_present_i,
-      this.psi_past_r,
-      this.psi_past_i,
-      this.c2V,
-      this.constants.c1,
-      this.constants.width,
-      this.constants.height
-    );
-
-    this.stepCleanup(update_p);
-  }
-
   forwardEulerStep(
     psi_present_r: Float32Array[],
     psi_present_i: Float32Array[],
@@ -295,11 +309,11 @@ export class AppComponent {
     c2V: Float32Array[],
     c1: number,
     width: number,
-    height: number
-  ): Float32Array[][] {
-    let psi_future_r = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
-    let psi_future_i = new Array(width).fill(0).map(() => new Float32Array(height).fill(0));
-
+    height: number,
+    //
+    psi_future_r: Float32Array[],
+    psi_future_i: Float32Array[]
+  ) {
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         psi_future_i[x][y] =
@@ -308,7 +322,5 @@ export class AppComponent {
           -c1 * (psi_present_i[x + 1][y] + psi_present_i[x][y + 1] - 4 * psi_present_i[x][y] + psi_present_i[x - 1][y] + psi_present_i[x][y - 1]) + c2V[x][y] * psi_present_i[x][y] + psi_past_r[x][y];
       }
     }
-
-    return [psi_future_r, psi_future_i];
   }
 }
