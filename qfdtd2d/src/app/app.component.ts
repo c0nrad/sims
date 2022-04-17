@@ -1,5 +1,5 @@
 import { ChangeDetectorRef, Component, NgZone, ViewChild } from "@angular/core";
-import { GPU, IKernelRunShortcut, input, Input } from "gpu.js";
+import { GPU, IKernelRunShortcut } from "gpu.js";
 
 @Component({
   selector: "app-root",
@@ -21,10 +21,10 @@ import { GPU, IKernelRunShortcut, input, Input } from "gpu.js";
 export class AppComponent {
   constants = {
     //display
-    width: 600,
+    width: 500,
     height: 250,
 
-    steps_per_update: 20,
+    steps_per_update: 1000,
 
     //simulation
     dx: 1.0,
@@ -33,10 +33,10 @@ export class AppComponent {
 
     //initial pulse
     sigma: 40,
-    k0: Math.PI / 3,
+    k0: Math.PI / 5,
 
     //potential
-    v0: 10,
+    v0: 1,
 
     // calculated
     c1: 0,
@@ -76,13 +76,12 @@ export class AppComponent {
     this.normalize();
   }
 
-  async ngOnInit() {
+  ngOnInit() {
     this.gpuStep();
     this.drawPotential();
     this.drawPsi();
 
     this.start = performance.now();
-    // this.animateStep();
     requestAnimationFrame(() => this.animateStep());
   }
 
@@ -126,6 +125,13 @@ export class AppComponent {
         constants: { c1: this.constants.c1, width: this.constants.width, height: this.constants.height },
         optimizeFloatMemory: true,
         tactic: "speed",
+        argumentTypes: {
+          psi_present_r: `Array`,
+          psi_present_i: `Array`,
+          psi_past_r: `Array`,
+          psi_past_i: `Array`,
+          c2V: `Array`,
+        },
       }
     );
   }
