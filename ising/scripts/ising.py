@@ -1,21 +1,59 @@
 import math
 import matplotlib.pyplot as plt
 import random
+import numpy as np
+from numba import int64, float64
+from numba.experimental import jitclass
 
 
+spec = [
+    ("i", int64),
+    ("T", float64),
+    ("gridSize", int64),
+    ("prevEnergy", float64),
+    ("grid", int64[:, :]),
+]
+
+
+def plot(grid):
+    plt.imshow(grid)
+    plt.show()
+
+
+@jitclass(spec=spec)
 class Ising:
     def __init__(self, gridSize: int, T: float):
-        self.gridSize = gridSize
+        self.gridSize = int(gridSize)
         self.T = T
         self.reset()
 
     def reset(self):
         self.i = 0
-        self.grid = [[random.choice([-1, 1]) for i in range(self.gridSize)] for j in range(self.gridSize)]
+        self.grid = np.random.choice(np.asarray([-1, 1]), size=(self.gridSize, self.gridSize))
         self.prevEnergy = self.calculateEnergy()
 
     def plot(self):
         plt.imshow(self.grid)
+        plt.show()
+
+    def plot_interations(self):
+        interation_grid = [[0 for i in range(self.gridSize * 2)] for j in range(self.gridSize * 2)]
+
+        for x_i in range(0, 2 * self.gridSize):
+            for y_i in range(0, 2 * self.gridSize):
+                if x_i % 2 == y_i % 2:
+                    continue
+
+                x = int(x_i / 2)
+                y = int(y_i / 2)
+
+                if y_i % 2 == 1:
+                    interation_grid[x_i][y_i] = 1 if self.at(x - 1, y) == self.at(x, y) else -1
+                if x_i % 2 == 1:
+                    interation_grid[x_i][y_i] = 1 if self.at(x, y - 1) == self.at(x, y) else -1
+
+                #  = 0 if self.at(x + 1, y) == self.at(x, y) else 1
+        plt.imshow(interation_grid, cmap='coolwarm')
         plt.show()
 
     def at(self, x: int, y: int) -> int:
@@ -51,7 +89,7 @@ class Ising:
 
         newEnergy = self.prevEnergy + dE
 
-        if newEnergy < self.prevEnergy or random.random() < math.exp(-dE / self.T):
+        if newEnergy <= self.prevEnergy or random.random() < math.exp(-dE / self.T):
             self.prevEnergy = newEnergy
         else:
             self.grid[x][y] *= -1
@@ -80,6 +118,40 @@ class Ising:
                     out += 1
                 total += out / 4
         return total / self.gridSize ** 2
+
+    def calculateDisorder(self):
+        clumpy = 0
+        halfGrid = int(self.gridSize / 2)
+        for x in range(0, self.gridSize):
+            for y in range(0, self.gridSize):
+                for dx in range(-halfGrid, halfGrid):
+                    for dy in range(-halfGrid, halfGrid):
+                        if dx == 0 and dy == 0:
+                            continue
+                        distance = math.sqrt(dx * dx + dy * dy)
+
+                        if self.at(x, y) != self.at((x + dx) % self.gridSize, (y + dy) % self.gridSize):
+                            clumpy += math.exp(-distance)
+
+                        # else:
+                        # clumpy -= distance
+        return clumpy
+
+    def calculateCorrelationFunction(self):
+        out = np.zeros(self.gridSize // 2 - 1)
+        for x in range(0, self.gridSize):
+            for y in range(0, self.gridSize):
+                for r in range(0, int(self.gridSize // 2 - 1)):
+                    out[r] += (
+                        self.at(x, y)
+                        * (self.at(x + r, y) + self.at(x, y + r) + self.at(x - r, y) + self.at(x, y - r))
+                        / 4
+                    )
+        out /= self.gridSize * self.gridSize
+        # print("Before subtracting magnatism", out[0:10], self.calculateMagnatism())
+        out -= self.calculateMagnatism() ** 2
+        # print("After/ subtracintg magnatism", out[0:10])
+        return np.abs(out)
 
 
 if __name__ == "__main__":
