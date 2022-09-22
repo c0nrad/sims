@@ -1,3 +1,5 @@
+# bootstrap and bins
+
 import random
 import numpy as np
 import matplotlib.pyplot as plot
@@ -6,7 +8,7 @@ N = 20  # number of timesteps
 a = 0.5  # grid size (deltaT)
 eps = 1.4  # metropolis shift amount
 N_cor = 20  # path corrections
-N_cf = 10000  # configurations
+N_cf = 100  # configurations
 
 
 def S(j, x):
@@ -54,8 +56,9 @@ def calculate_average(G):
     return np.sum(G, axis=0) / len(G)
 
 
-def calculate_delta_E(Gns):
-    return np.log(np.abs(Gns[:-1] / Gns[1:])) / a
+def calculate_dE(G):
+    g = calculate_average(G)
+    return np.log(np.abs(g[:-1] / g[1:])) / a
 
 
 def calculate_standard_deviation(G):
@@ -64,19 +67,47 @@ def calculate_standard_deviation(G):
     return g_sdev
 
 
+def bootstrap(G):
+    N_cf = len(G)
+    G_bootstrap = []
+    for i in range(0, N_cf):
+        alpha = int(np.random.uniform(0, N_cf))
+        G_bootstrap.append(G[alpha])
+    return G_bootstrap
+
+
+def bin(G, binsize):
+    G_binned = []
+    for i in range(0, len(G), binsize):
+        G_avg = 0
+        for j in range(0, binsize):
+            G_avg = G_avg + G[i + j]
+        G_binned.append(G_avg / binsize)
+    return G_binned
+
+
+def bootstrap_dE(G, N_bootstrap=100):
+    dE_avg = calculate_dE(G)
+    dE_bs = []
+
+    for i in range(N_bootstrap):
+        g = bootstrap(G)
+        dE_bs.append(calculate_dE(np.asarray(g)))
+    dE_sdev = calculate_standard_deviation(np.asarray(dE_bs))
+
+    return (dE_avg, dE_sdev)
+
+
 x = np.zeros(N)
-G = np.zeros((N_cf, N_cor))
+G = np.zeros((N_cf, N))
 
 monte_carlo_average(x, G)
-Gns = calculate_average(G)
-dE = calculate_delta_E(Gns)
-g_sdev = calculate_standard_deviation(G)
+(dE_avg, dE_sdev) = bootstrap_dE(G, 20)
 
-
-plot.errorbar([a * x for x in range(0, N - 1)], dE)
+plot.errorbar([a * x for x in range(0, N - 1)], dE_avg, dE_sdev)
 plot.xlabel("t")
 plot.ylabel("En+1 - En")
-plot.xlim([-0.5, 3.5])
+plot.xlim([-0.5, 2.5])
 plot.ylim([-1, 3])
 plot.show()
 plot.pause(0)

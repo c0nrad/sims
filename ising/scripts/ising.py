@@ -1,9 +1,13 @@
 import math
 import matplotlib.pyplot as plt
 import random
+from utils import value_to_ud
 import numpy as np
 from numba import int64, float64
 from numba.experimental import jitclass
+import colorama
+from scipy.optimize import curve_fit
+from copy import copy, deepcopy
 
 
 spec = [
@@ -20,7 +24,7 @@ def plot(grid):
     plt.show()
 
 
-@jitclass(spec=spec)
+# @jitclass(spec=spec)
 class Ising:
     def __init__(self, gridSize: int, T: float):
         self.gridSize = int(gridSize)
@@ -59,6 +63,47 @@ class Ising:
     def at(self, x: int, y: int) -> int:
         return self.grid[x % self.gridSize][y % self.gridSize]
 
+    def state_at(self, x: int, y: int) -> str:
+        state = (
+            self.at(x, y),
+            self.at(x, y - 1),  # top
+            self.at(x + 1, y),  # right
+            self.at(x, y + 1),  # bottom
+            self.at(x - 1, y),  # left
+        )
+
+        return "".join([value_to_ud(a) for a in state])
+    
+
+    def set(self, x: int, y: int, v: int) -> int:
+        self.grid[x % self.gridSize][y % self.gridSize] = v
+
+    def equals(self, other) -> bool:
+        # return np.array_equal(self.grid, other.grid)
+        if self.gridSize != other.gridSize:
+            return False
+        for x in range(self.gridSize):
+            for y in range(self.gridSize):
+                if self.at(x, y) != other.at(x, y):
+                    # print(self.at(x, y), other.at(x, y))
+                    return False
+
+        return True
+
+    def to_line(self) -> str:
+        out = ""
+        for x in range(self.gridSize):
+            for y in range(self.gridSize):
+                out += value_to_ud(self.at(x, y))
+        return out
+
+    def clone(self):
+        out = Ising(self.gridSize, self.T)
+        # out.grid = [row[:] for row in self.grid]
+        # out.grid = deepcopy(self.grid)
+        out.grid = np.array(self.grid, copy=True)
+        return out
+
     def calculateEnergy(self) -> float:
         out = 0
         for i in range(self.gridSize):
@@ -89,7 +134,7 @@ class Ising:
 
         newEnergy = self.prevEnergy + dE
 
-        if newEnergy <= self.prevEnergy or random.random() < math.exp(-dE / self.T):
+        if newEnergy < self.prevEnergy or random.random() < math.exp(-dE / self.T):
             self.prevEnergy = newEnergy
         else:
             self.grid[x][y] *= -1
@@ -153,12 +198,88 @@ class Ising:
         # print("After/ subtracintg magnatism", out[0:10])
         return np.abs(out)
 
+    def dump(self):
+        for x in range(self.gridSize):
+            out = ""
+            for y in range(self.gridSize):
+                if self.at(x, y) == 1:
+                    out += colorama.Fore.BLUE + "u"
+                elif self.at(x, y) == -1:
+                    out += colorama.Fore.RED + "d"
+                else:
+                    out += colorama.Fore.RESET + "0"
+            print(out + colorama.Fore.RESET)
+
+    def calculateCorrelationDistance(self):
+        def exponential_fit(x, g, a):
+            return a * np.exp(-((x) / g))
+
+        # print(exponential_fit, list(range(self.gridSize // 2 - 1)), self.calculateCorrelationFunction())
+        return curve_fit(exponential_fit, range(self.gridSize // 2 - 1), self.calculateCorrelationFunction())[0][0]
+
+
+def count_states(model: Ising):
+    out = {}
+    out["1111"] = 0
+    out["1110"] = 0
+    out["1100"] = 0
+    out["1010"] = 0
+    out["1000"] = 0
+    out["0000"] = 0
+
+    for x in range(0, model.gridSize):
+        for y in range(0, model.gridSize):
+            state = (model.at(x, y - 1), model.at(x + 1, y), model.at(x, y + 1), model.at(x - 1, y))
+            state = [1 if model.at(x, y) == a else 0 for a in state]
+
+            if is_rotate_equal(state, [1, 1, 1, 1]):
+                out["1111"] += 1
+            elif is_rotate_equal(state, [1, 1, 1, 0]):
+                out["1110"] += 1
+            elif is_rotate_equal(state, [1, 1, 0, 0]):
+                out["1100"] += 1
+            elif is_rotate_equal(state, [1, 0, 1, 0]):
+                out["1010"] += 1
+            elif is_rotate_equal(state, [1, 0, 0, 0]):
+                out["1000"] += 1
+            elif is_rotate_equal(state, [0, 0, 0, 0]):
+                out["0000"] += 1
+            else:
+                print("Not possible", state)
+                exit(0)
+
+    # normalize?
+    for k in out:
+        out[k] /= model.gridSize * model.gridSize
+        out[k] = int(out[k] * 100)
+
+    return out
+
+
+def is_rotate_equal(a, b):
+    l = len(a)
+    for offset in range(len(a)):
+        equal = True
+        for j in range(len(a)):
+            if a[(offset + j) % l] != b[j]:
+                equal = False
+                break
+
+        if equal:
+            return True
+    return False
+
+
+assert is_rotate_equal([1, 1, 1, 1], [1, 1, 1, 1])
+assert is_rotate_equal([0, 1, 1, 1], [1, 0, 1, 1])
+assert not is_rotate_equal([1, 0, 1, 0], [1, 1, 1, 0])
+
 
 if __name__ == "__main__":
 
     import time
 
-    gridS = 128
+    gridS = 512
     m = Ising(gridS, 2)
 
     Ts = [x / 10.0 for x in range(1, 50, 1)]

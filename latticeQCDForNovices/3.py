@@ -1,3 +1,5 @@
+# Use x^3 propogator
+
 import random
 import numpy as np
 import matplotlib.pyplot as plot
@@ -28,7 +30,7 @@ def metropolis_path_update(x):
 def compute_G(x, n):
     g = 0.0
     for j in range(0, N):
-        g += x[j] * x[(j + n) % N]
+        g += x[j] ** 3 * x[(j + n) % N] ** 3
     return g / N
 
 
