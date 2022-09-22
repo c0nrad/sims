@@ -16,6 +16,19 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
           <h2>Teleray</h2>
           <p><i>Simple ray tracing with a Cassegrain telescope.</i></p>
 
+          <h4>CCD</h4>
+          <table>
+            <tr *ngFor="let r of ccd.counts">
+              <td
+                *ngFor="let c of r"
+                style="width:10px; height:10px; margin:00px; padding:0px; text-align: center; font-size: 5px"
+                [ngClass]="{ 'bg-danger': c > rayCount / 8, 'bg-warning': c > rayCount / 16, 'bg-info': c >= 1 }"
+              >
+                <small>{{ c }}</small>
+              </td>
+            </tr>
+          </table>
+
           <h4>Controls</h4>
 
           <h5>Primary Mirror</h5>
@@ -70,18 +83,6 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
           <button class="btn btn-secondary" (click)="initRays(); redraw()">Redraw Rays</button>
           <hr />
 
-          <h5>CCD</h5>
-          <table>
-            <tr *ngFor="let r of ccd.counts">
-              <td
-                *ngFor="let c of r"
-                style="width:10px; height:10px; margin:00px; padding:0px; text-align: center; font-size: 5px"
-                [ngClass]="{ 'bg-danger': c > rayCount / 8, 'bg-warning': c > rayCount / 16, 'bg-info': c >= 1 }"
-              >
-                <small>{{ c }}</small>
-              </td>
-            </tr>
-          </table>
           <!-- {{ ccd.counts }} -->
         </div>
       </div>
