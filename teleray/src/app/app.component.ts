@@ -14,8 +14,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
         <div class="col-md-2">
           <h2>Teleray</h2>
-          <p><i>Simple ray tracing with a Cassegrain telescope.</i></p>
-
+          <p>
+            <i>Simple ray tracing with a Cassegrain telescope.</i>
+            <small> (<a href="https://github.com/c0nrad/sims/blob/master/teleray/src/app/app.component.ts">Code</a>) (<a href="https://blog.c0nrad.io/posts/sims-teleray/">Blog Post</a>) </small>
+          </p>
           <h4>CCD</h4>
           <table>
             <tr *ngFor="let r of ccd.counts">
